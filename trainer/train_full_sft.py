@@ -14,6 +14,10 @@ import torch.distributed as dist
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
+try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    tqdm = None
 
 from model.model_minimind import MiniMindConfig
 from dataset.lm_dataset import SFTDataset
@@ -40,7 +44,12 @@ def build_snapshot_path(epoch, step):
 
 def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
     start_time = time.time()
-    for step, (input_ids, labels) in enumerate(loader, start=start_step + 1):
+    progress = None
+    if is_main_process() and tqdm is not None:
+        progress = tqdm(loader, total=len(loader), desc=f"Epoch {epoch + 1}/{args.epochs}", leave=True)
+    iterable = progress if progress is not None else loader
+
+    for step, (input_ids, labels) in enumerate(iterable, start=start_step + 1):
         input_ids = input_ids.to(args.device)
         labels = labels.to(args.device)
         lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
@@ -83,6 +92,8 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
                     "learning_rate": current_lr,
                     "epoch_time": eta_min
                 })
+            if progress is not None:
+                progress.set_postfix(loss=f"{current_loss:.4f}", lr=f"{current_lr:.2e}")
 
         if (step % args.save_steps == 0 or step == iters - 1) and is_main_process():
             model.eval()
@@ -110,6 +121,9 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             del state_dict, cpu_state_dict
 
         del input_ids, labels, res, loss
+
+    if progress is not None:
+        progress.close()
 
 
 if __name__ == "__main__":

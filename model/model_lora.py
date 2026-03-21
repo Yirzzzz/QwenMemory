@@ -1,5 +1,5 @@
 import torch
-from torch import optim, nn
+from torch import nn
 
 
 # 定义Lora网络结构
@@ -19,9 +19,10 @@ class LoRA(nn.Module):
 
 
 def apply_lora(model, rank=8):
+    model_device = next(model.parameters()).device
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear) and module.weight.shape[0] == module.weight.shape[1]:
-            lora = LoRA(module.weight.shape[0], module.weight.shape[1], rank=rank).to(model.device)
+            lora = LoRA(module.weight.shape[0], module.weight.shape[1], rank=rank).to(model_device)
             setattr(module, "lora", lora)
             original_forward = module.forward
 
@@ -33,7 +34,8 @@ def apply_lora(model, rank=8):
 
 
 def load_lora(model, path):
-    state_dict = torch.load(path, map_location=model.device)
+    model_device = next(model.parameters()).device
+    state_dict = torch.load(path, map_location=model_device)
     state_dict = {(k[7:] if k.startswith('module.') else k): v for k, v in state_dict.items()}
 
     for name, module in model.named_modules():
@@ -43,7 +45,8 @@ def load_lora(model, path):
 
 
 def save_lora(model, path):
-    raw_model = getattr(model, '_orig_mod', model)
+    raw_model = model.module if hasattr(model, 'module') else model
+    raw_model = getattr(raw_model, '_orig_mod', raw_model)
     state_dict = {}
     for name, module in raw_model.named_modules():
         if hasattr(module, 'lora'):

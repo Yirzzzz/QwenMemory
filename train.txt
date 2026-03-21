@@ -3,13 +3,7 @@
   python trainer/train_full_sft.py --model_source qwen --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --from_weight none
   --save_weight full_sft --ckpt_tag qwen
 
-   python trainer/train_full_sft.py \
-    --model_source qwen \
-    --hf_model_path Qwen/Qwen2.5-1.5B-Instruct \
-    --data_path ./dataset/cams_short_sft_train.jsonl \
-    --save_weight full_sft \
-    --ckpt_tag qwen15 \
-    --save_steps 500
+   python trainer/train_full_sft.py --model_source qwen --hf_model_path Qwen/Qwen2.5-1.5B-Instruct --data_path ./dataset/cams_short_sft_train.jsonl --save_weight full_sft --ckpt_tag qwen15 --save_steps 500
 
   单个 checkpoint 验证：
 
