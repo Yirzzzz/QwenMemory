@@ -1,0 +1,13 @@
+{
+  "model_source": "qwen",
+  "hf_model_path": "Qwen/Qwen2.5-0.5B-Instruct",
+  "ckpt_tag": "qwen",
+  "rope_scaling_type": "none",
+  "rope_scaling_factor": 1.0,
+  "save_weight": "full_sft",
+  "from_weight": "none",
+  "data_path": "../dataset/sft_mini_512.jsonl",
+  "max_seq_len": 1024,
+  "batch_size": 4,
+  "learning_rate": 1e-6
+}

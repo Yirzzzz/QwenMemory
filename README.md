@@ -1967,3 +1967,47 @@ If you find MiniMind helpful in your research or work, please cite:
 This repository is licensed under the [Apache-2.0 License](LICENSE).
 
 
+
+## Qwen 迁移训练链路（SFT + RLAIF）
+
+本仓库已支持在不改变数据集 JSON 结构的前提下，使用 Hugging Face Qwen 模型作为训练 backbone。
+
+### 关键点
+- SFT：`trainer/train_full_sft.py` 支持 `--model_source qwen --hf_model_path <Qwen路径>`。
+- RLAIF：`trainer/train_ppo.py`、`trainer/train_grpo.py`、`trainer/train_spo.py` 支持 Qwen actor/ref；PPO 的 critic 已改为通用 CausalLM wrapper。
+- 长上下文：不再依赖 MiniMind 自定义外推，实现改为 Qwen 配置参数：
+  - `--rope_scaling_type yarn|linear|none`
+  - `--rope_scaling_factor <float>`（大于 1 时生效）
+- 数据：保留现有 `dataset/*.jsonl` 结构，tokenizer/chat template 改为通过目标模型 tokenizer 的 `apply_chat_template` 处理。
+
+### 推荐最小流程
+1. SFT（从 HF Qwen 初始化）：
+```bash
+python trainer/train_full_sft.py \
+  --model_source qwen \
+  --hf_model_path Qwen/Qwen2.5-0.5B-Instruct \
+  --from_weight none \
+  --save_weight full_sft \
+  --ckpt_tag qwen
+```
+
+2. RLAIF（以 SFT 权重为起点）：
+```bash
+python trainer/train_grpo.py \
+  --model_source qwen \
+  --hf_model_path Qwen/Qwen2.5-0.5B-Instruct \
+  --save_weight grpo \
+  --ckpt_tag qwen
+```
+或
+```bash
+python trainer/train_ppo.py \
+  --model_source qwen \
+  --hf_model_path Qwen/Qwen2.5-0.5B-Instruct \
+  --save_weight ppo_actor \
+  --ckpt_tag qwen
+```
+
+### 配置示例
+- `configs/qwen_sft.json`
+- `configs/qwen_rlaif.json`

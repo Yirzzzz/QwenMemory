@@ -3,17 +3,23 @@
 """
 import os
 import sys
+
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import random
 import math
+from typing import Optional
+
 import numpy as np
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import Sampler
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
 from model.model_minimind import MiniMindForCausalLM
+
 
 def get_model_params(model, config):
     total = sum(p.numel() for p in model.parameters()) / 1e6
@@ -24,8 +30,10 @@ def get_model_params(model, config):
     shared_expert = sum(p.numel() for n, p in model.named_parameters() if 'mlp.shared_experts.0.' in n) / 1e6
     base = total - (expert * n_routed) - (shared_expert * n_shared)
     active = base + (expert * n_active) + (shared_expert * n_shared)
-    if active < total: Logger(f'Model Params: {total:.2f}M-A{active:.2f}M')
-    else: Logger(f'Model Params: {total:.2f}M')
+    if active < total:
+        Logger(f'Model Params: {total:.2f}M-A{active:.2f}M')
+    else:
+        Logger(f'Model Params: {total:.2f}M')
 
 
 def is_main_process():
@@ -38,7 +46,7 @@ def Logger(content):
 
 
 def get_lr(current_step, total_steps, lr):
-    return lr*(0.1 + 0.45*(1 + math.cos(math.pi * current_step / total_steps)))
+    return lr * (0.1 + 0.45 * (1 + math.cos(math.pi * current_step / total_steps)))
 
 
 def init_distributed_mode():
@@ -60,11 +68,30 @@ def setup_seed(seed: int):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoch=0, step=0, wandb=None, save_dir='../checkpoints', **kwargs):
+
+def build_ckpt_name(weight='full_sft', lm_config=None, ckpt_tag: Optional[str] = None):
+    if ckpt_tag:
+        return f'{weight}_{ckpt_tag}'
+
+    use_moe = bool(getattr(lm_config, 'use_moe', False))
+    hidden_size = getattr(lm_config, 'hidden_size', None)
+    if hidden_size is not None:
+        moe_path = '_moe' if use_moe else ''
+        return f'{weight}_{hidden_size}{moe_path}'
+    return str(weight)
+
+
+def build_ckpt_path(save_dir='../out', weight='full_sft', lm_config=None, ckpt_tag: Optional[str] = None):
+    name = build_ckpt_name(weight=weight, lm_config=lm_config, ckpt_tag=ckpt_tag)
+    return f'{save_dir}/{name}.pth'
+
+
+def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoch=0, step=0, wandb=None,
+                  save_dir='../checkpoints', ckpt_tag: Optional[str] = None, **kwargs):
     os.makedirs(save_dir, exist_ok=True)
-    moe_path = '_moe' if lm_config.use_moe else ''
-    ckp_path = f'{save_dir}/{weight}_{lm_config.hidden_size}{moe_path}.pth'
-    resume_path = f'{save_dir}/{weight}_{lm_config.hidden_size}{moe_path}_resume.pth'
+    name = build_ckpt_name(weight=weight, lm_config=lm_config, ckpt_tag=ckpt_tag)
+    ckp_path = f'{save_dir}/{name}.pth'
+    resume_path = f'{save_dir}/{name}_resume.pth'
 
     if model is not None:
         raw_model = model.module if isinstance(model, DistributedDataParallel) else model
@@ -111,22 +138,49 @@ def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoc
             current_ws = dist.get_world_size() if dist.is_initialized() else 1
             if saved_ws != current_ws:
                 ckp_data['step'] = ckp_data['step'] * saved_ws // current_ws
-                Logger(f'GPU数量变化({saved_ws}→{current_ws})，step已自动转换为{ckp_data["step"]}')
+                Logger(f'GPU数量变化({saved_ws}->{current_ws})，step已自动转换为{ckp_data["step"]}')
             return ckp_data
         return None
 
 
-def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model', save_dir='../out', device='cuda'):
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-    model = MiniMindForCausalLM(lm_config)
+def _apply_qwen_rope_scaling(config, rope_scaling_type: Optional[str], rope_scaling_factor: Optional[float]):
+    if rope_scaling_type and rope_scaling_factor and rope_scaling_factor > 1.0:
+        config.rope_scaling = {
+            "type": rope_scaling_type,
+            "factor": float(rope_scaling_factor)
+        }
 
-    if from_weight!= 'none':
-        moe_suffix = '_moe' if lm_config.use_moe else ''
-        weight_path = f'{save_dir}/{from_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
-        weights = torch.load(weight_path, map_location=device)
+
+def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model', save_dir='../out', device='cuda',
+               model_source='minimind', hf_model_path: Optional[str] = None, ckpt_tag: Optional[str] = None,
+               trust_remote_code=True, rope_scaling_type: Optional[str] = None,
+               rope_scaling_factor: Optional[float] = None):
+    model_source = model_source.lower()
+
+    if model_source == 'qwen':
+        if not hf_model_path:
+            raise ValueError('When model_source=qwen, hf_model_path is required.')
+
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_path, trust_remote_code=trust_remote_code)
+        config = AutoConfig.from_pretrained(hf_model_path, trust_remote_code=trust_remote_code)
+        _apply_qwen_rope_scaling(config, rope_scaling_type, rope_scaling_factor)
+        model = AutoModelForCausalLM.from_pretrained(hf_model_path, config=config, trust_remote_code=trust_remote_code)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        model = MiniMindForCausalLM(lm_config)
+
+    if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    if from_weight != 'none':
+        weight_path = build_ckpt_path(save_dir=save_dir, weight=from_weight, lm_config=lm_config, ckpt_tag=ckpt_tag)
+        if not os.path.exists(weight_path):
+            raise FileNotFoundError(f'Cannot find checkpoint: {weight_path}')
+        weights = torch.load(weight_path, map_location='cpu')
         model.load_state_dict(weights, strict=False)
 
-    get_model_params(model, lm_config)
+    effective_config = getattr(model, 'config', lm_config)
+    get_model_params(model, effective_config)
     Logger(f'Trainable Params: {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f}M')
     return model.to(device), tokenizer
 

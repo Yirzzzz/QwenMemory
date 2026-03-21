@@ -1,0 +1,8 @@
+  1. SFT:
+
+  python trainer/train_full_sft.py --model_source qwen --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --from_weight none
+  --save_weight full_sft --ckpt_tag qwen
+
+  2. RLAIF（示例 GRPO）:
+
+  python trainer/train_grpo.py --model_source qwen --hf_model_path Qwen/Qwen2.5-0.5B-Instruct --save_weight grpo

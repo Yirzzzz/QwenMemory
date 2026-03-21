@@ -1896,3 +1896,47 @@ If you find MiniMind helpful in your research or work, please cite:
 # License
 
 This repository is licensed under the [Apache-2.0 License](LICENSE).
+
+## Qwen Migration Path (SFT + RLAIF)
+
+This repo now supports keeping the existing dataset JSON schema while switching the training backbone to Hugging Face Qwen models.
+
+### What changed
+- SFT: `trainer/train_full_sft.py` supports `--model_source qwen --hf_model_path <Qwen path>`.
+- RLAIF: `trainer/train_ppo.py`, `trainer/train_grpo.py`, and `trainer/train_spo.py` support Qwen actor/ref; PPO critic is migrated to a generic CausalLM wrapper.
+- Long context: MiniMind custom extrapolation is removed from this training path and replaced with Qwen-style config args:
+  - `--rope_scaling_type yarn|linear|none`
+  - `--rope_scaling_factor <float>` (effective when > 1)
+- Data: existing dataset file structure is unchanged; tokenizer/chat template now follows target model tokenizer via `apply_chat_template`.
+
+### Minimal flow
+1. SFT (initialize from HF Qwen):
+```bash
+python trainer/train_full_sft.py \
+  --model_source qwen \
+  --hf_model_path Qwen/Qwen2.5-0.5B-Instruct \
+  --from_weight none \
+  --save_weight full_sft \
+  --ckpt_tag qwen
+```
+
+2. RLAIF (start from SFT weights):
+```bash
+python trainer/train_grpo.py \
+  --model_source qwen \
+  --hf_model_path Qwen/Qwen2.5-0.5B-Instruct \
+  --save_weight grpo \
+  --ckpt_tag qwen
+```
+or
+```bash
+python trainer/train_ppo.py \
+  --model_source qwen \
+  --hf_model_path Qwen/Qwen2.5-0.5B-Instruct \
+  --save_weight ppo_actor \
+  --ckpt_tag qwen
+```
+
+### Example config files
+- `configs/qwen_sft.json`
+- `configs/qwen_rlaif.json`
