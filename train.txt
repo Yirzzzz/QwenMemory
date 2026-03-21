@@ -3,6 +3,31 @@
   python trainer/train_full_sft.py --model_source qwen --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --from_weight none
   --save_weight full_sft --ckpt_tag qwen
 
+   python trainer/train_full_sft.py \
+    --model_source qwen \
+    --hf_model_path Qwen/Qwen2.5-1.5B-Instruct \
+    --data_path ./dataset/cams_short_sft_train.jsonl \
+    --save_weight full_sft \
+    --ckpt_tag qwen15 \
+    --save_steps 500
+
+  单个 checkpoint 验证：
+
+  python scripts/eval_sft_jsonl.py \
+    --checkpoint_path ./out/full_sft_qwen15_epoch1_step500.pth \
+    --data_path ./dataset/cams_short_sft_val.jsonl \
+    --output_mode plain \
+    --hf_model_path Qwen/Qwen2.5-1.5B-Instruct
+
+  批量扫描并选最优：
+
+  python scripts/checkpoint_eval_runner.py \
+    --checkpoint_dir ./out \
+    --pattern "full_sft_qwen15_epoch*_step*.pth" \
+    --data_path ./dataset/cams_short_sft_val.jsonl \
+    --output_mode plain \
+    --hf_model_path Qwen/Qwen2.5-1.5B-Instruct
+
   2. RLAIF（示例 GRPO）:
 
   python trainer/train_grpo.py --model_source qwen --hf_model_path Qwen/Qwen2.5-0.5B-Instruct --save_weight grpo

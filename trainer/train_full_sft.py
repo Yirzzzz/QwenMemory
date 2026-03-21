@@ -32,6 +32,12 @@ from trainer.trainer_utils import (
 warnings.filterwarnings('ignore')
 
 
+def build_snapshot_path(epoch, step):
+    base_path = build_ckpt_path(args.save_dir, args.save_weight, lm_config=lm_config, ckpt_tag=args.ckpt_tag)
+    stem, ext = os.path.splitext(base_path)
+    return f"{stem}_epoch{epoch + 1}_step{step}{ext}"
+
+
 def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
     start_time = time.time()
     for step, (input_ids, labels) in enumerate(loader, start=start_step + 1):
@@ -78,13 +84,16 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
                     "epoch_time": eta_min
                 })
 
-        if (step % args.save_interval == 0 or step == iters - 1) and is_main_process():
+        if (step % args.save_steps == 0 or step == iters - 1) and is_main_process():
             model.eval()
             ckp = build_ckpt_path(args.save_dir, args.save_weight, lm_config=lm_config, ckpt_tag=args.ckpt_tag)
+            snapshot_ckp = build_snapshot_path(epoch, step)
             raw_model = model.module if isinstance(model, DistributedDataParallel) else model
             raw_model = getattr(raw_model, '_orig_mod', raw_model)
             state_dict = raw_model.state_dict()
-            torch.save({k: v.half().cpu() for k, v in state_dict.items()}, ckp)
+            cpu_state_dict = {k: v.half().cpu() for k, v in state_dict.items()}
+            torch.save(cpu_state_dict, ckp)
+            torch.save(cpu_state_dict, snapshot_ckp)
             lm_checkpoint(
                 lm_config,
                 weight=args.save_weight,
@@ -98,7 +107,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
                 ckpt_tag=args.ckpt_tag,
             )
             model.train()
-            del state_dict
+            del state_dict, cpu_state_dict
 
         del input_ids, labels, res, loss
 
@@ -118,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
     parser.add_argument("--log_interval", type=int, default=100, help="日志打印间隔")
     parser.add_argument("--save_interval", type=int, default=1000, help="模型保存间隔")
+    parser.add_argument("--save_steps", type=int, default=0, help="按step保存快照；0时回退到save_interval")
     parser.add_argument('--hidden_size', default=512, type=int, help="仅用于MiniMind/兼容命名")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="仅用于MiniMind")
     parser.add_argument('--max_seq_len', default=1024, type=int, help="训练最大长度")
@@ -135,6 +145,7 @@ if __name__ == "__main__":
     parser.add_argument('--rope_scaling_factor', type=float, default=1.0, help='Qwen rope_scaling factor，>1时生效')
 
     args = parser.parse_args()
+    args.save_steps = args.save_steps or args.save_interval
 
     local_rank = init_distributed_mode()
     if dist.is_initialized():
