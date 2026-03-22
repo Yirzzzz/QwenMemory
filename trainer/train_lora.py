@@ -39,6 +39,12 @@ def build_lora_save_path():
     return build_ckpt_path(args.save_dir, args.lora_name, lm_config=lm_config, ckpt_tag=args.ckpt_tag)
 
 
+def build_lora_snapshot_path(epoch, step):
+    base_path = build_lora_save_path()
+    stem, ext = os.path.splitext(base_path)
+    return f"{stem}_epoch{epoch + 1}_step{step}{ext}"
+
+
 def inspect_trainable_params(model, max_names=100):
     trainable = [(name, param.numel()) for name, param in model.named_parameters() if param.requires_grad]
     trainable_params = sum(numel for _, numel in trainable)
@@ -108,7 +114,9 @@ def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
         if (step % args.save_steps == 0 or step == iters - 1) and is_main_process():
             model.eval()
             lora_save_path = build_lora_save_path()
+            lora_snapshot_path = build_lora_snapshot_path(epoch, step)
             save_lora(model, lora_save_path)
+            save_lora(model, lora_snapshot_path)
             lm_checkpoint(
                 lm_config,
                 weight=args.lora_name,
@@ -147,7 +155,7 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
     parser.add_argument("--log_interval", type=int, default=10, help="日志打印间隔")
     parser.add_argument("--save_interval", type=int, default=1000, help="模型保存间隔")
-    parser.add_argument("--save_steps", type=int, default=0, help="按step保存LoRA权重；0时回退到save_interval")
+    parser.add_argument("--save_steps", type=int, default=4000, help="按step保存LoRA权重快照")
     parser.add_argument('--hidden_size', default=512, type=int, help="隐藏层维度")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
     parser.add_argument('--max_seq_len', default=340, type=int, help="训练的最大截断长度（中文1token≈1.5~1.7字符）")
@@ -167,7 +175,6 @@ if __name__ == "__main__":
     parser.add_argument('--rope_scaling_type', type=str, default='none', help='Qwen rope_scaling type，例如 yarn/linear')
     parser.add_argument('--rope_scaling_factor', type=float, default=1.0, help='Qwen rope_scaling factor，>1时生效')
     args = parser.parse_args()
-    args.save_steps = args.save_steps or args.save_interval
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()

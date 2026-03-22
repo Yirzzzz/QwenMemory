@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate multiple SFT checkpoints on a validation jsonl set")
     parser.add_argument("--checkpoint_dir", required=True, help="Directory containing checkpoint .pth files")
     parser.add_argument("--data_path", required=True, help="Validation jsonl path")
+    parser.add_argument("--checkpoint_type", choices=["full", "lora"], default="full", help="Checkpoint type")
     parser.add_argument("--output_mode", choices=["plain", "structured"], default="plain", help="Target output mode")
     parser.add_argument("--output_dir", default="", help="Directory to save aggregated results")
     parser.add_argument("--pattern", default="*.pth", help="Glob pattern for checkpoints")
@@ -26,6 +27,7 @@ def main():
     parser.add_argument("--model_source", choices=["qwen", "minimind"], default="qwen", help="Model source")
     parser.add_argument("--hf_model_path", default="Qwen/Qwen2.5-1.5B-Instruct", help="HF model path for base weights/tokenizer")
     parser.add_argument("--ckpt_tag", default="qwen15", help="Checkpoint tag compatibility")
+    parser.add_argument("--lora_rank", type=int, default=8, help="LoRA rank when checkpoint_type=lora")
     parser.add_argument("--hidden_size", type=int, default=512, help="MiniMind hidden size compatibility")
     parser.add_argument("--num_hidden_layers", type=int, default=8, help="MiniMind layer count compatibility")
     parser.add_argument("--use_moe", type=int, choices=[0, 1], default=0, help="MiniMind MoE compatibility")
@@ -57,6 +59,7 @@ def main():
     for checkpoint_path in checkpoints:
         eval_args = argparse.Namespace(
             checkpoint_path=str(checkpoint_path),
+            checkpoint_type=args.checkpoint_type,
             data_path=args.data_path,
             output_mode=args.output_mode,
             output_dir=str(output_dir),
@@ -67,6 +70,7 @@ def main():
             model_source=args.model_source,
             hf_model_path=args.hf_model_path,
             ckpt_tag=args.ckpt_tag,
+            lora_rank=args.lora_rank,
             hidden_size=args.hidden_size,
             num_hidden_layers=args.num_hidden_layers,
             use_moe=args.use_moe,
