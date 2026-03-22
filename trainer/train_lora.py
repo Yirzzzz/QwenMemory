@@ -39,6 +39,29 @@ def build_lora_save_path():
     return build_ckpt_path(args.save_dir, args.lora_name, lm_config=lm_config, ckpt_tag=args.ckpt_tag)
 
 
+def inspect_trainable_params(model, max_names=100):
+    trainable = [(name, param.numel()) for name, param in model.named_parameters() if param.requires_grad]
+    trainable_params = sum(numel for _, numel in trainable)
+    Logger(f"Actual Trainable Params After Freezing: {trainable_params / 1e6:.3f}M")
+    Logger(f"Trainable Parameter Tensors: {len(trainable)}")
+    if trainable:
+        preview = ", ".join(name for name, _ in trainable[:max_names])
+        Logger(f"Trainable Param Names (first {min(len(trainable), max_names)}): {preview}")
+    return trainable
+
+
+def debug_dataset_sample(train_ds, tokenizer, index=0):
+    if not hasattr(train_ds, "build_debug_item"):
+        return
+    info = train_ds.build_debug_item(index)
+    Logger("===== Dataset Debug Sample =====")
+    Logger(f"Rendered Prompt:\n{info['rendered_prompt']}")
+    Logger(f"Decoded Full Text:\n{info['decoded_full_text']}")
+    Logger(f"Label Non--100 Intervals: {info['label_non_ignore_intervals']}")
+    Logger(f"Label Non--100 Count: {info['label_non_ignore_count']}")
+    Logger("===== End Dataset Debug Sample =====")
+
+
 def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
     start_time = time.time()
     progress = None
@@ -102,6 +125,10 @@ def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
 
         del input_ids, labels, res, loss
 
+        if args.max_steps > 0 and step >= args.max_steps:
+            Logger(f"Reached max_steps={args.max_steps}, stopping current epoch early")
+            break
+
     if progress is not None:
         progress.close()
 
@@ -114,7 +141,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=32, help="batch size")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="初始学习率")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
-    parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
+    parser.add_argument("--dtype", type=str, default="bfloat16", choices=["bfloat16", "float16", "float32"], help="混合精度类型")
     parser.add_argument("--num_workers", type=int, default=8, help="数据加载线程数")
     parser.add_argument("--accumulation_steps", type=int, default=1, help="梯度累积步数")
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
@@ -132,6 +159,8 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="MiniMind-LoRA", help="wandb项目名")
     parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="是否使用torch.compile加速（0=否，1=是）")
     parser.add_argument("--lora_rank", type=int, default=8, help="LoRA rank")
+    parser.add_argument("--max_steps", type=int, default=0, help="Maximum optimizer steps for smoke test; 0 means full epoch")
+    parser.add_argument("--debug_dataset", default=0, type=int, choices=[0, 1], help="Print one dataset supervision sample")
     parser.add_argument('--ckpt_tag', default='qwen15', type=str, help="checkpoint tag")
     parser.add_argument('--model_source', type=str, default='qwen', choices=['qwen', 'minimind'], help='训练模型来源')
     parser.add_argument('--hf_model_path', type=str, default='Qwen/Qwen2.5-1.5B-Instruct', help='Qwen HF模型路径或本地目录')
@@ -156,7 +185,7 @@ if __name__ == "__main__":
     # ========== 3. 设置混合精度 ==========
     device_type = "cuda" if "cuda" in args.device else "cpu"
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
-    autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
+    autocast_ctx = nullcontext() if device_type == "cpu" or args.dtype == "float32" else torch.cuda.amp.autocast(dtype=dtype)
     
     # ========== 4. 配wandb ==========
     wandb = None
@@ -199,9 +228,12 @@ if __name__ == "__main__":
             lora_params.append(param)
         else:
             param.requires_grad = False
+    inspect_trainable_params(model)
     
     # ========== 6. 定义数据和优化器 ==========
     train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
+    if args.debug_dataset == 1 and is_main_process():
+        debug_dataset_sample(train_ds, tokenizer, index=0)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     optimizer = optim.AdamW(lora_params, lr=args.learning_rate)
@@ -233,6 +265,9 @@ if __name__ == "__main__":
             train_epoch(epoch, loader, len(loader) + skip, lora_params, start_step, wandb)
         else:
             train_epoch(epoch, loader, len(loader), lora_params, 0, wandb)
+        if args.max_steps > 0:
+            Logger(f"Smoke test mode reached max_steps={args.max_steps}, stopping after epoch {epoch + 1}")
+            break
     
     # ========== 10. 清理分布进程 ==========
     if dist.is_initialized(): dist.destroy_process_group()

@@ -22,6 +22,33 @@
     --output_mode plain \
     --hf_model_path Qwen/Qwen2.5-1.5B-Instruct
 
+python trainer/train_lora.py --model_source qwen --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --data_path ./dataset/cams_short_sft_train.jsonl --from_weight none --lora_name cams_short_lora --ckpt_tag qwen15 --lora_rank 8 --batch_size 1 --accumulation_steps 8 --num_workers 0 --log_interval 1
+
+--max_seq_len 256
+
   2. RLAIF（示例 GRPO）:
 
   python trainer/train_grpo.py --model_source qwen --hf_model_path Qwen/Qwen2.5-0.5B-Instruct --save_weight grpo
+
+
+
+
+python trainer/train_full_sft.py --model_source qwen --hf_model_path /root/autodl-fs/Qwen/Qwen2.5-1.5B-Instruct --data_path /root/autodl-fs//cams_short_sft_train.jsonl --from_weight none --save_weight full_sft --epochs 1 --batch_size 1 --accumulation_steps 8 --learning_rate 2e-6 --max_seq_len 1024 --dtype bfloat16 --num_workers 2 --log_interval 10 --save_steps 100
+
+python trainer/train_lora.py \
+    --model_source qwen \
+    --hf_model_path /root/autodl-fs/Qwen/Qwen2.5-1.5B-Instruct \
+    --data_path /root/autodl-fs/cams_short_sft_train.jsonl \
+    --from_weight none \
+    --lora_name cams_short_lora \
+    --ckpt_tag qwen15 \
+    --lora_rank 8 \
+    --epochs 3 \
+    --batch_size 2 \
+    --accumulation_steps 8 \
+    --learning_rate 1e-5 \
+    --max_seq_len 1024 \
+    --dtype bfloat16 \
+    --num_workers 2 \
+    --log_interval 10 \
+    --save_steps 200

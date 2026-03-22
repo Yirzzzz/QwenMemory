@@ -57,6 +57,8 @@ class SFTDataset(Dataset):
         self.samples = load_dataset('json', data_files=jsonl_path, split='train')
         self.bos_id = tokenizer(f'{tokenizer.bos_token}assistant\n', add_special_tokens=False).input_ids
         self.eos_id = tokenizer(f'{tokenizer.eos_token}\n', add_special_tokens=False).input_ids
+        chat_template = getattr(tokenizer, "chat_template", "") or ""
+        self.supports_assistant_mask = "{% generation %}" in chat_template
 
     def __len__(self):
         return len(self.samples)
@@ -106,20 +108,69 @@ class SFTDataset(Dataset):
         labels = [tok if int(mask) == 1 else -100 for tok, mask in zip(input_ids, assistant_mask)]
         return input_ids, labels
 
+    def encode_via_prompt_boundary(self, conversations):
+        tools = conversations[0]["functions"] if (conversations and conversations[0]["role"] == "system" and conversations[0].get("functions")) else None
+        prompt_messages = conversations[:-1]
+        full_input_ids = self.tokenizer.apply_chat_template(
+            conversations,
+            tokenize=True,
+            add_generation_prompt=False,
+            tools=tools
+        )
+        prompt_input_ids = self.tokenizer.apply_chat_template(
+            prompt_messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            tools=tools
+        )
+        if full_input_ids[:len(prompt_input_ids)] != prompt_input_ids:
+            raise ValueError("Prompt boundary mismatch while building labels")
+        labels = [-100] * len(prompt_input_ids) + full_input_ids[len(prompt_input_ids):]
+        return full_input_ids, labels
+
+    def build_debug_item(self, index):
+        sample = self.samples[index]
+        conversations = pre_processing_chat(sample['conversations'], add_system_ratio=0.0)
+        prompt = self.create_chat_prompt(conversations)
+        input_ids, labels = self.encode_via_prompt_boundary(conversations)
+        non_ignore = [i for i, value in enumerate(labels) if value != -100]
+        intervals = []
+        if non_ignore:
+            start = prev = non_ignore[0]
+            for pos in non_ignore[1:]:
+                if pos == prev + 1:
+                    prev = pos
+                    continue
+                intervals.append((start, prev))
+                start = prev = pos
+            intervals.append((start, prev))
+        return {
+            "rendered_prompt": prompt,
+            "decoded_full_text": self.tokenizer.decode(input_ids, skip_special_tokens=False),
+            "label_non_ignore_intervals": intervals,
+            "label_non_ignore_count": len(non_ignore),
+        }
+
     def __getitem__(self, index):
         sample = self.samples[index]
         conversations = pre_processing_chat(sample['conversations'])
 
         try:
-            input_ids, labels = self.encode_with_assistant_mask(conversations)
+            if self.supports_assistant_mask:
+                input_ids, labels = self.encode_with_assistant_mask(conversations)
+            else:
+                input_ids, labels = self.encode_via_prompt_boundary(conversations)
         except Exception:
-            prompt = self.create_chat_prompt(conversations)
-            prompt = post_processing_chat(prompt)
-            input_ids = self.tokenizer(prompt).input_ids
-            labels = self.generate_labels_legacy(input_ids)
+            try:
+                input_ids, labels = self.encode_via_prompt_boundary(conversations)
+            except Exception:
+                prompt = self.create_chat_prompt(conversations)
+                prompt = post_processing_chat(prompt)
+                input_ids = self.tokenizer(prompt).input_ids
+                labels = self.generate_labels_legacy(input_ids)
 
-        input_ids = input_ids[:self.max_length]
-        labels = labels[:self.max_length]
+        input_ids = input_ids[-self.max_length:]
+        labels = labels[-self.max_length:]
         input_ids += [self.tokenizer.pad_token_id] * (self.max_length - len(input_ids))
         labels += [-100] * (self.max_length - len(labels))
         return torch.tensor(input_ids, dtype=torch.long), torch.tensor(labels, dtype=torch.long)
