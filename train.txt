@@ -55,16 +55,24 @@ python trainer/train_lora.py \
 
 # train
 python trainer/train_lora.py --model_source qwen --hf_model_path /root/autodl-fs/Qwen/Qwen2.5-1.5B-Instruct --data_path /root/autodl-fs/sft_le_1024.jsonl --from_weight none --lora_name cams_short_lora  --lora_rank 8 --epochs 3 --batch_size 2 --accumulation_steps 8 --num_workers 2 --log_interval 1 --max_seq_len 1024 --learning_rate 1e-5  --save_steps 4000
+python trainer/train_lora.py --model_source qwen --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --data_path ./dataset/train_length_buckets/sft_le_512.jsonl --from_weight none --lora_name cams_short_lora  --lora_rank 8 --epochs 3 --batch_size 2 --accumulation_steps 8 --num_workers 2 --log_interval 1 --max_seq_len 512 --learning_rate 1e-5  --save_steps 4000
+
+python trainer/train_qlora.py --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --data_path ./dataset/train_length_buckets/sft_le_512.jsonl --adapter_name cams_short_qlora --batch_size 1 --accumulation_steps 8 --learning_rate 1e-5 --max_seq_len 512 --dtype bfloat16 --save_steps 4000
+
 
 
 # val
-python ./scripts/eval_sft_jsonl.py --checkpoint_type lora --checkpoint_path ./out/lora/cams_short_lora_qwen15_epoch1_step4000.pth --data_path ./dataset/cams_short_sft_val.jsonl --output_mode plain --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --lora_rank 8
+python ./scripts/eval_sft_jsonl.py --checkpoint_type lora --checkpoint_path /root/autodl-tmp/out/lora/cams_short_lora_qwen15.pth --data_path /root/autodl-fs/val_sft_le_1024.jsonl --output_mode plain --hf_model_path /root/autodl-fs/Qwen/Qwen2.5-1.5B-Instruct --lora_rank 8
+python ./scripts/eval_sft_jsonl.py --checkpoint_type lora --checkpoint_path ../out/lora_256_fp16/cams_short_lora_qwen15_epoch2_step8000.pth --data_path ./dataset/val_length_buckets/sft_le_512.jsonl --output_mode plain --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --lora_rank 8
+
+
  python scripts/eval_sft_jsonl.py \
-    --checkpoint_type lora \
-    --checkpoint_path ./out/lora/cams_short_lora_qwen15_epoch1_step4000.pth \
+    --checkpoint_type qlora \
+    --checkpoint_path ./out/qlora/cams_short_qlora_qwen15_epoch1_step4000 \
     --data_path ./dataset/cams_short_sft_val.jsonl \
     --output_mode plain \
-    --hf_model_path /root/autodl-tmp/models/Qwen2.5-1.5B-Instruct \
-    --lora_rank 8
+    --hf_model_path /root/autodl-tmp/models/Qwen2.5-1.5B-Instruct
+
+
 # split
 python ./scripts/split_jsonl_by_token_length.py --input_path ./dataset/cams_short_sft_train.jsonl --tokenizer_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --output_dir ./dataset/train_length_buckets
