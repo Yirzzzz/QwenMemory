@@ -13,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate multiple SFT checkpoints on a validation jsonl set")
     parser.add_argument("--checkpoint_dir", required=True, help="Directory containing checkpoint .pth files")
     parser.add_argument("--data_path", required=True, help="Validation jsonl path")
-    parser.add_argument("--checkpoint_type", choices=["full", "lora"], default="full", help="Checkpoint type")
+    parser.add_argument("--checkpoint_type", choices=["full", "lora", "qlora"], default="full", help="Checkpoint type")
     parser.add_argument("--output_mode", choices=["plain", "structured"], default="plain", help="Target output mode")
     parser.add_argument("--output_dir", default="", help="Directory to save aggregated results")
     parser.add_argument("--pattern", default="*.pth", help="Glob pattern for checkpoints")

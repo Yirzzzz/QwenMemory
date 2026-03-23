@@ -58,7 +58,13 @@ python trainer/train_lora.py --model_source qwen --hf_model_path /root/autodl-fs
 
 
 # val
-python ./scripts/eval_sft_jsonl.py --checkpoint_type lora --checkpoint_path /root/autodl-tmp/out/lora/cams_short_lora_qwen15.pth --data_path /root/autodl-fs/val_sft_le_1024.jsonl --output_mode plain --hf_model_path /root/autodl-fs/Qwen/Qwen2.5-1.5B-Instruct --lora_rank 8
-
+python ./scripts/eval_sft_jsonl.py --checkpoint_type lora --checkpoint_path ./out/lora/cams_short_lora_qwen15_epoch1_step4000.pth --data_path ./dataset/cams_short_sft_val.jsonl --output_mode plain --hf_model_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --lora_rank 8
+ python scripts/eval_sft_jsonl.py \
+    --checkpoint_type lora \
+    --checkpoint_path ./out/lora/cams_short_lora_qwen15_epoch1_step4000.pth \
+    --data_path ./dataset/cams_short_sft_val.jsonl \
+    --output_mode plain \
+    --hf_model_path /root/autodl-tmp/models/Qwen2.5-1.5B-Instruct \
+    --lora_rank 8
 # split
 python ./scripts/split_jsonl_by_token_length.py --input_path ./dataset/cams_short_sft_train.jsonl --tokenizer_path E:/LLM/Qwen/Qwen2.5-1.5B-Instruct --output_dir ./dataset/train_length_buckets

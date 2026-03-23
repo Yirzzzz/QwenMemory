@@ -13,6 +13,7 @@ try:
 except Exception:  # pragma: no cover
     jieba = None
 
+from peft import PeftModel
 from model.model_lora import apply_lora, load_lora
 from model.model_minimind import MiniMindConfig
 from trainer.trainer_utils import init_model
@@ -171,6 +172,8 @@ def load_eval_model(args):
     if args.checkpoint_type == "lora":
         apply_lora(model, rank=args.lora_rank)
         load_lora(model, args.checkpoint_path)
+    elif args.checkpoint_type == "qlora":
+        model = PeftModel.from_pretrained(model, args.checkpoint_path)
     else:
         state_dict = torch.load(args.checkpoint_path, map_location="cpu")
         model.load_state_dict(state_dict, strict=False)
@@ -276,7 +279,7 @@ def evaluate_checkpoint(args):
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate SFT checkpoint on jsonl validation set")
     parser.add_argument("--checkpoint_path", required=True, help="Checkpoint .pth path")
-    parser.add_argument("--checkpoint_type", choices=["full", "lora"], default="full", help="Checkpoint type")
+    parser.add_argument("--checkpoint_type", choices=["full", "lora", "qlora"], default="full", help="Checkpoint type")
     parser.add_argument("--data_path", required=True, help="Validation jsonl path")
     parser.add_argument("--output_mode", choices=["plain", "structured"], default="plain", help="Target output mode")
     parser.add_argument("--output_dir", default="", help="Directory to save predictions and metrics")
