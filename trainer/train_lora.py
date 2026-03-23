@@ -175,6 +175,10 @@ if __name__ == "__main__":
     parser.add_argument('--rope_scaling_type', type=str, default='none', help='Qwen rope_scaling type，例如 yarn/linear')
     parser.add_argument('--rope_scaling_factor', type=float, default=1.0, help='Qwen rope_scaling factor，>1时生效')
     args = parser.parse_args()
+    if args.accumulation_steps < 1:
+        raise ValueError("--accumulation_steps must be >= 1")
+    if args.save_steps < 1:
+        raise ValueError("--save_steps must be >= 1")
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()
